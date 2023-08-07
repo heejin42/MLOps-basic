@@ -290,3 +290,120 @@ mydatabase=# select * from iris_data;
 ## Data Insertion Loop
 이번에는 데이터를 계속해서 생성해보고 계속 DB에 삽입되고 있는지 확인해보겠다.    
 data_insertion.py 코드에 insert_data 파트에 반복 루프를 추가한다. 여기서 너무 빠른 시간에 추가되면 DB에 부하가 생길 수 있으므로 1초 간격을 넣어준다. 그리고 코드를 실행하면 계속 실행되며 DB에도 데이터가 계속 추가되는 것을 확인할 수 있다.
+
+---------------------------
+
+# 실습 - 5
+## Data Generator on Docker
+이번에는 앞에서 작성했던 코드를 Docker 컨테이너 안에서 실행할 수 있도록 Docker file를 작성해볼 것이다. Docker 컨테이너 간의 네트워크를 연결해 DB에 데이터를 계속 삽입하도록 하고 확인해보자.
+
+### 1) data_generator.py 작성
+data_insertion.py 코드와 달라진 부분은 DB 에 연결하는 connector를 생성한 것 뿐이다. Connector를 생성할 때 4) Data Insertion Loop 챕터에서 작성한 내용과는 다르게 호스트를 받는 부분을 다음과 같이 ArgumentParser 로 변경했다.
+```python
+parser = ArgumentParser()
+parser.add_argument("--db-host", dest="db_host", type=str, default="localhost")
+args = parser.parse_args()
+```
+
+기존에 연결된 DB 에 iris_data 테이블을 생성하는 코드, Iris 데이터 불러오고 불러온 데이터 중 랜덤으로 row 1개를 DB 에 삽압허는 과정을 계속해서 반복하게 된다.
+
+### 2) docker file 이용해 컨테이너 생성
+docker 컨테이너를 생성하려면 docker create [이미지이름] 명령이 필요하며 먼저 docker 이미지를 만들어야 한다. 즉 dockerfile을 말하는 것인데, 도커 파일은 컨테이너 이미지를 만드는데 사용되는 단순 텍스트 기반 스크립트이다. Dockerfile이라는 파일을 만들고 내용을 적어주면 되는데, 기본 요소는 아래와 같다.   
+* FROM: 이미지를 만들 때 base가 되는 이미지를 지정한다. 이 실습에서는 amd64/python:3.9-slim을 사용하겠다.   
+* RUN: 이미지를 만들 때 실행할 코드를 지정한다. 첫번째 RUN은 해당 도커 파일로 Data Generator를 띄울 때 컨테이너 안에 접근하여 psql을 사용하기 위해 postgresql-client를 설치한다. 두번째 RUN은 컨테이너에서 python 스크립트를 실행할 때 필요한 라이브러리나 패키지를 설치한다.    
+* WORKDIR: 작업 directory를 지정한다. 해당 폴더가 없는 경우는 새로 생성하며 작업 디렉토리가 지정된 이후 모든 명령어는 해당 위치를 기준으로 동작한다.    
+* COPY: 파일이나 폴더를 이미지에 복사한다. 상대 경로를 사용할 경우, WORKDIR로 지정한 디렉토리를 기준으로 복사한다.    
+* ENTRYPOINT: 컨테이너가 실행될 때 시작할 프로세스를 입력한다.   
+* CMD: 컨테이너가 실행될 때 ENTRYPOINT에 전달할 argument를 입력한다.   
+
+그럼 한번 도커 파일을 작성해보자
+
+```
+FROM amd64/python:3.9-slim
+
+RUN apt-get update && apt-get install -y \
+    postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /usr/app
+
+RUN pip install -U pip && pip install scikit-learn pandas psycopg2-binary
+
+COPY code/1_data_generator.py data_generator.py
+
+ENTRYPOINT [ "python", "data_generator.py", "--db-host" ]
+
+CMD [ "localhost" ]
+```
+
+다음으로 위 docker file을 이용해서 이미지를 build 한다. 빌드 규칙과 명령어는 아래와 같고 이미지 이름은 data-generator로 하겠다.  
+
+```
+docker build [OPTIONS] PATH | URL | -
+```
+```
+docker build -t data-generator .
+```
+```
+> docker image ls
+REPOSITORY       TAG       IMAGE ID       CREATED          SIZE
+data-generator   latest    77451f3cb081   15 seconds ago   609MB
+postgres         14.0      317a302c7480   21 months ago    374MB
+```
+
+그리고 이미지가 생성되었는지 docker image ls 명령어로 확인해보면 잘 생성된 것을 확인할 수 있을 것이다. 그럼 빌드한 이미지를 docker run data-generator 명령어로 실행해보자.   
+
+```
+Traceback (most recent call last):
+  File "/usr/app/code/1_data_generator.py", line 61, in <module>
+    db_connect = psycopg2.connect(
+  File "/usr/local/lib/python3.9/site-packages/psycopg2/__init__.py", line 122, in connect
+    conn = _connect(dsn, connection_factory=connection_factory, **kwasync)
+psycopg2.OperationalError: connection to server at "localhost" (127.0.0.1), port 5432 failed: Connection refused
+	Is the server running on that host and accepting TCP/IP connections?
+connection to server at "localhost" (::1), port 5432 failed: Cannot assign requested address
+	Is the server running on that host and accepting TCP/IP connections?
+```
+위와 같은 메세지와 함께 컨테이너가 실행되지 않고 종료될 것이다. 이유는 로컬호스트가 응답하지 않는다는 에러인데 먼저 DB 컨테이너가 제대로 실행되고 있는지를 확인해야 할 것이다. 그럼 앞의 다른 실습에서 띄워놓은 DB Server만 실행 중임을 알 수 있다.  왜 로컬에서는 실행이 되지만 도커 컨테이너에서는 이 DB 서버에 접근할 수 없는 것일까? Docker의 네트워크에 대해 알아보자.   
+
+### 3) doker network 연결
+먼저 로컬에서 DB 컨테이너에 접근한 방법을 살펴보자.   
+![img](./img/localhost_networking.png)
+
+DB Server Creation 챕터에서 DB 컨테이너를 띄울 때 사용한 명령어는 docker run -d ... -p 5432:5432 postgres:14.0 이다. 즉, DB 컨테이너의 5432 포트를 localhost 의 5432 포트로 연결한 것인데 localhost:5432 에 대한 접근은 컨테이너 내부의 5432 포트에 대한 접근과 같다. 그래서 연결이 가능한 것이다.   
+
+반면 Data Generator 컨테이너를 실행시켜서 DB 컨테이너를 띄우고자 하는 방법은 아래 그림과 같다.   
+![img](./img/container-networking.png)
+이 때 Data Generator 컨테이너 입장에서 localhost:5432 는 아무것도 열려있지 않은 비어있는 포트이다. 그렇기 때문에 DB 를 찾지 못한다는 에러와 함께 종료된다. 이를 해결하려면 두 컨테이너 간 통신을 할 수 있게 네트워크를 연결해주어야 한다.   
+
+두 컨테이너를 연결시키는 방법 중 하나로 **docker network**를 사용할 수 있다.   
+1. 우선 컨테이너 간 통신할 네트워크를 생성한다.   
+```
+docker network create my-network
+```
+2. 실행 중인 DB 컨테이너를 생성된 네트워크에 연결한다.   
+```
+docker network connect my-network postgres-server
+```
+3. 이제 다시 data-generator 이미지를 이용해 data-generator 이라는 컨테이너를 실행하는데 네트워크를 지정해준다.   
+```
+docker run -d \
+  --name data-generator \
+  --network "my-network" \
+  data-generator "postgres-server"
+```
+
+### 4) 데이터 확인
+다시 psql 을 이용하여 DB 에 접속해서 데이터를 확인해보면 실시간으로 입력되고 있는 것을 확인할 수 있다.
+
+```
+    PGPASSWORD=password psql -h localhost -p 5432 -U ***REMOVED*** -d mydatabase
+```
+```
+mydatabase=# select * from iris_data;
+ id  |         timestamp          | sepal_length | sepal_width | petal_length | petal_width | target 
+-----+----------------------------+--------------+-------------+--------------+-------------+--------
+ 124 | 2023-08-07 06:40:28.653459 |          5.7 |         2.6 |          3.5 |           1 |      1
+ 125 | 2023-08-07 06:40:29.683945 |          6.5 |           3 |          5.2 |           2 |      2
+ 126 | 2023-08-07 06:40:30.689314 |          6.7 |         3.3 |          5.7 |         2.1 |      2
+```
