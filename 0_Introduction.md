@@ -31,9 +31,9 @@ SageMaker(AWS), VertexAI(Google Cloud) 등이 있으며 범위와 구성은 필�
 
 ## 그럼 어떻게 할 수 있는가?
 먼저 아래 그림은 각 과정을 도식화한 것으로 어떤 컴포넌트가 필요한지 확인할 수 있다.   
-![img](../../img/MLOps_pipeline.png)   
+![img](./img/MLOps_pipeline.png)   
 
 그렇다면 실제로 이러한 흐름의 파이프라인을 구현할 기술 스택을 알아야 할 것이다. 아래 그림을 보면 오픈소스와 공식 문서가 있는 패키지(소프트웨어) 중심으로 각각에서 활용할 수 있는 기술 스택이 정리되어 있다.   
-![img](../../img/MLOps-architecture.png)   
+![img](./img/MLOps-architecture.png)   
 
 그럼 각각의 요소를 실습을 통해 이해해보자.   
