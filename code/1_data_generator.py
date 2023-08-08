@@ -67,8 +67,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     db_connect = psycopg2.connect(
-        user="***REMOVED***",
-        password="***REMOVED***",
+        user=user_name,
+        password=password,
         host=args.db_host,
         port=5432,
         database="mydatabase",

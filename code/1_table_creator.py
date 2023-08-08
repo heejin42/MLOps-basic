@@ -24,8 +24,8 @@ def create_table(db_connect):
 
 if __name__ == "__main__":
     db_connect = psycopg2.connect(
-        user="***REMOVED***",
-        password="***REMOVED***",
+        user=user_name,
+        password=password,
         host="localhost",
         port=5432,
         database="mydatabase",
