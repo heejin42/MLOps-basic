@@ -596,9 +596,9 @@ docker 컨테이너 상에서 psql 을 이용하여 DB 로 접속하는데 이 �
 root@9e5227b175c6:/usr/app# 
 root@9e5227b175c6:/usr/app# 
 root@9e5227b175c6:/usr/app# 
-root@9e5227b175c6:/usr/app# PGPASSWORD=***REMOVED*** data_generator.py psql -h postgres-server -p 5432 -U ***REMOVED*** -d mydatabase
+root@9e5227b175c6:/usr/app# PGPASSWORD=password data_generator.py psql -h postgres-server -p 5432 -U ***REMOVED*** -d mydatabase
 bash: data_generator.py: command not found
-root@9e5227b175c6:/usr/app# PGPASSWORD=***REMOVED*** psql -h postgres-server -p 5432 -U ***REMOVED*** -d mydatabase
+root@9e5227b175c6:/usr/app# PGPASSWORD=password psql -h postgres-server -p 5432 -U ***REMOVED*** -d mydatabase
 psql (15.3 (Debian 15.3-0+deb12u1), server 14.0 (Debian 14.0-1.pgdg110+1))
 Type "help" for help.
 
