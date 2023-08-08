@@ -19,7 +19,9 @@ A container is a sandboxed process running on a host machine that is isolated fr
 ### what is a container image?
 A running container uses an isolated filesystem. This isolated filesystem is provided by a container image, and the container image must contain everything needed to run an application - all dependencies, configurations, scripts, binaries, etc. The image also contains other configurations for the container, such as environment variables, a default command to run, and other metadata.
 
+
 ------------------------------------------------
+
 
 # 실습 - 1
 ## DB Server Creation
@@ -77,7 +79,9 @@ mydatabase=# \du
 mydatabase=# 
 ```
 
+
 ----------------------------------------------
+
 
 # 실습 - 2
 ## Table Creation
@@ -241,6 +245,10 @@ mydatabase=# \d
 (2 rows)
 ```
 
+
+---------------------------
+   
+
 # 실습 - 3
 ## Data Insertion
 이번에는 앞서 생성한 테이블에 데이터를 삽입하고 확인해볼 것이다.
@@ -284,6 +292,9 @@ mydatabase=# select * from iris_data;
 ----+----------------------------+--------------+-------------+--------------+-------------+--------
   1 | 2023-08-05 09:00:25.150453 |          6.3 |         3.3 |            6 |         2.5 |      2
 (1 row)
+  
+
+---------------------------
 
 
 # 실습 - 4
@@ -291,7 +302,9 @@ mydatabase=# select * from iris_data;
 이번에는 데이터를 계속해서 생성해보고 계속 DB에 삽입되고 있는지 확인해보겠다.    
 data_insertion.py 코드에 insert_data 파트에 반복 루프를 추가한다. 여기서 너무 빠른 시간에 추가되면 DB에 부하가 생길 수 있으므로 1초 간격을 넣어준다. 그리고 코드를 실행하면 계속 실행되며 DB에도 데이터가 계속 추가되는 것을 확인할 수 있다.
 
+
 ---------------------------
+
 
 # 실습 - 5
 ## Data Generator on Docker
@@ -406,4 +419,194 @@ mydatabase=# select * from iris_data;
  124 | 2023-08-07 06:40:28.653459 |          5.7 |         2.6 |          3.5 |           1 |      1
  125 | 2023-08-07 06:40:29.683945 |          6.5 |           3 |          5.2 |           2 |      2
  126 | 2023-08-07 06:40:30.689314 |          6.7 |         3.3 |          5.7 |         2.1 |      2
+```
+
+
+---------------------
+
+
+# 실습 - 6
+## Data Generator on Docker
+이번에는 Docker Compose를 이용해 컨테이너를 띄우는 실습을 해보겠다. 아래 명령어로 먼저 실행 중안 DB 서버와 Data Generator를 종료시킨다.  
+```
+docker rm --force postgres-server data-generator
+```
+
+### Docker Compose 파일 작성
+먼저 Compose 파일은 .yaml 파일로 작성하며 아키텍처는 다음과 같다.
+
+* version - Compose 파일의 버전을 의미한다. 최신 버전은 ![공식 홈페이지](https://docs.docker.com/compose/compose-file/compose-versioning/)에서 확인 가능하며 최신 버전인 3을 사용하겠다.   
+* services - Compose에 묶일 서비스들을 의미하며 하나의 서비스는 하나의 컨테이너라고 이해하면 된다.
+
+1) services - postgres-server
+    - (name): 먼저 이름을 입력해준다. 서비스의 이름 == 컨테이너 호스트 이름
+    - image: 사용할 컨테이너의 이미지
+    - ports: 컨테이너에서 외부로 노출할 포트 포워딩 설정, 여러개 지정 가능하다.   
+    - environment: 컨테이너 실행할 때 사용한 -e 옵션과 같은 역할이다.
+2) services - data generator
+    - build
+        - context: 이미지를 빌드하기 위해 dockerfile의 절대경로 또는 상대경로를 설정한다.   
+        - dockerfile: 위의 경로에 있는 dockerfile 파일명을 입력한다.    
+    - depends_on: 띄어지는 서비스 간 종속성 순서로 postgres server가 먼저 실행되고 난 뒤에 data generator를 실행해야 하므로 postgres server를 입력해준다.   
+    - command: Dockerfile에 작성되어 있는 CMD를 덮어쓴다. 
+
+```yaml
+# docker-compose.yaml
+version: "3"
+
+services:
+    postgres-server:
+        image: postgres:14.0
+        container_name: postgres-server
+        ports:
+        - 5432:5432
+        environment:
+        POSTGRES_USER: myuser
+        POSTGRES_PASSWORD: mypassword
+        POSTGRES_DB: mydatabase
+
+    data-generator:
+        build:
+        context: .
+        dockerfile: Dockerfile
+        container_name: data-generator
+        depends_on:
+        - postgres-server
+        command: ["postgres-server"]
+```
+
+위와 같이 Compose 파일을 작성했다면 up과 down 명령어롤 통해 실행과 종료를 할 수 있다. 여기서 -d는
+Detached 모드로 실행한다는 의미로 백그라운드에서 컨테이너를 실행 후 유지시키는 모드다.
+```
+docker compose up -d
+``` 
+
+하지만 실행이 되지 않을 것이다. 그 이유는 앞서 depends_on 으로 서비스 간의 종속성은 정했지만, 실제로 postgres server 가 띄워진 뒤에 곧바로 Data Generator 가 띄워지려고 하다보니 Postgres server 는 아직 준비가 되어있지 않은데 Data Generator 가 띄워져서 DB 에 연결을 하려다보니 Data Generator 가 Exited 되는 문제가 발생하는 것이다.   
+
+따라서 postgres server 가 사용 가능한 상태가 되어있는지 체크를 한 뒤에 Data Generator 를 띄워야 한다. 이를 해결하기 위한 방법으로 Docker Compose Healthcheck 가 있다.   
+간단하게 아래와 같이 yaml 파일에 healthcheck 부분과 condition 을 추가해볼텐데 postgres-server에 10초마다 테스트를 실행하여 5초 이내에 준비가 되었는지 체크하는 내용의 healthcheck 구문을 추가한다. 그리고 data-generator depend_on에 condition 속성을 추가한다.    
+```
+services:
+    postgres-server:
+        healthcheck:
+            test: ["CMD", "pg_isready", "-q", "-U", "myuser", "-d", "mydatabase"]
+            interval: 10s
+            timeout: 5s
+            retries: 5
+    data-generator:
+        depends_on:
+            postgres-server:
+                condition: service_healthy
+```
+
+### 확인
+```
+docker network ls
+```
+88631c0ecb57   mlops-basic_default   bridge    local   
+디렉토리명_default 라는 이름으로 생성된 것 확인할 수 있다.
+
+```
+docker network mlops-basic_default
+```
+네트워크에 자동으로 postgres-server 와 data-generator 컨테이너가 추가된 것을 볼 수 있다.
+
+
+```
+"Containers": {
+            "665c73b7d45da9f4c841a29380eda38cb9024453697e01216bfe31ab5ed6149b": {
+                "Name": "postgres-server",
+                "EndpointID": "136e8aabce59eec43212aaf6db875df18f664f842c67b0b5586172fe096b0e94",
+                "MacAddress": "02:42:ac:13:00:02",
+                "IPv4Address": "172.19.0.2/16",
+                "IPv6Address": ""
+            },
+            "ccac41fab42ef629481a081b1778911de91346cab0cdf8a3b434cc9ff560267b": {
+                "Name": "data-generator",
+                "EndpointID": "5f7a5b3a574441362984db5b147405efcbac1d955a1b68dbcae1b2eb1590ea36",
+                "MacAddress": "02:42:ac:13:00:03",
+                "IPv4Address": "172.19.0.3/16",
+                "IPv6Address": ""
+```
+네트워크에 자동으로 postgres-server 와 data-generator 컨테이너가 추가된 것을 볼 수 있다.
+
+
+그럼 일단 모든 서비스를 종료한 후 이름을 생성해서 다시 만들어주겠다. -v는 생성된 볼륨도 삭제하는 옵션이다.
+```
+docker compose down -v
+```
+
+이름을 지정하기 위해 compose 파일 하단에 아래 구문을 추가한다.
+```
+networks:
+  default:
+    name: mlops-network
+```
+
+### 다시 실행하기
+```
+docker compose up -d
+```
+
+### 네트워크 확인
+```
+(base) ihuijin-ui-MacBook-Air:MLOps-basic lee***REMOVED***$ docker network ls
+NETWORK ID     NAME            DRIVER    SCOPE
+801c384a5fd1   bridge          bridge    local
+b3aabcb80e16   host            host      local
+699f996e9400   mlops-network   bridge    local
+f37593eed931   my-network      bridge    local
+91f2fbb1fcbc   none            null      local
+```
+
+### 데이터 확인
+```
+(base) ihuijin-ui-MacBook-Air:MLOps-basic lee***REMOVED***$ PGPASSWORD=password psql -h localhost -p 5432 -U ***REMOVED*** -d mydatabase
+psql (14.8 (Homebrew), server 14.0 (Debian 14.0-1.pgdg110+1))
+Type "help" for help.
+
+mydatabase=# \d
+               List of relations
+ Schema |       Name       |   Type   | Owner  
+--------+------------------+----------+--------
+ public | iris_data        | table    | ***REMOVED***
+ public | iris_data_id_seq | sequence | ***REMOVED***
+(2 rows)
+
+mydatabase=# select * from iris_data;
+ id  |         timestamp          | sepal_length | sepal_width | petal_length | petal_width | target 
+-----+----------------------------+--------------+-------------+--------------+-------------+--------
+   1 | 2023-08-08 06:33:51.316981 |          5.5 |         4.2 |          1.4 |         0.2 |      0
+   2 | 2023-08-08 06:33:52.323448 |          5.6 |         2.8 |          4.9 |           2 |      2
+   3 | 2023-08-08 06:33:53.330731 |            6 |         2.2 |            5 |         1.5 |      2
+   4 | 2023-08-08 06:33:54.338171 |          6.3 |         3.4 |          5.6 |         2.4 |      2
+   5 | 2023-08-08 06:33:55.344954 |          6.3 |         2.3 |          4.4 |         1.3 |      1
+   6 | 2023-08-08 06:33:56.351195 |          6.2 |         3.4 |          5.4 |         2.3 |      2
+   7 | 2023-08-08 06:33:57.357598 |            6 |         3.4 |          4.5 |         1.6 |      1
+   8 | 2023-08-08 06:33:58.366004 |          4.6 |         3.2 |          1.4 |         0.2 |      0
+   9 | 2023-08-08 06:33:59.383616 |          5.4 |         3.7 |          1.5 |         0.2 |      0
+  10 | 2023-08-08 06:34:00.389241 |          6.3 |         2.3 |          4.4 |         1.3 |    :
+```
+
+그럼 docker exec로도 Data Generator 컨테이너 안으로 접속해보자.
+docker 컨테이너 상에서 psql 을 이용하여 DB 로 접속하는데 이 때는 호스트가 local 이 아닌 Data Generator 컨테이너에서 접속해야 하기 때문에 호스트를 localhost 에서 postgres-server 로 변경해야한다.
+
+```
+(base) ihuijin-ui-MacBook-Air:MLOps-basic lee***REMOVED***$ docker exec -it data-generator /bin/bash
+root@9e5227b175c6:/usr/app# 
+root@9e5227b175c6:/usr/app# 
+root@9e5227b175c6:/usr/app# 
+root@9e5227b175c6:/usr/app# PGPASSWORD=***REMOVED*** data_generator.py psql -h postgres-server -p 5432 -U ***REMOVED*** -d mydatabase
+bash: data_generator.py: command not found
+root@9e5227b175c6:/usr/app# PGPASSWORD=***REMOVED*** psql -h postgres-server -p 5432 -U ***REMOVED*** -d mydatabase
+psql (15.3 (Debian 15.3-0+deb12u1), server 14.0 (Debian 14.0-1.pgdg110+1))
+Type "help" for help.
+
+mydatabase=# \d
+               List of relations
+ Schema |       Name       |   Type   | Owner  
+--------+------------------+----------+--------
+ public | iris_data        | table    | ***REMOVED***
+ public | iris_data_id_seq | sequence | ***REMOVED***
+(2 rows)
 ```
