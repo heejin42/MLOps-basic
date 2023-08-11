@@ -191,3 +191,105 @@ print("Load Model Valid Accuracy :", load_valid_acc)
 # Load Model Valid Accuracy : 0.9666666666666667
 
 ```
+
+----------------------------
+# 실습 - 3
+## Load Data from Database
+이번에는 DB에서 데이터를 가져오는 파이프라인을 작성해보겠다.
+
+### 1) 데이터 불러오기
+- id 컬럼을 기준으로 최신 데이터 100개 추출하는 쿼리문을 작성한다.
+```sql
+SELECT * FROM iris_data ORDER BY id DESC LIMIT 100;
+```
+
+- pandas.read_sql로 query와 DB connector를 전달한다. 여기서 PostgreSQL DB 에 연결할 수 있는 DB connector 를 생성 후 query 와 DB connector 를 이용한다. 
+```python
+import pandas as pd
+import psycopg2
+
+db_connect = psycopg2.connect(host="localhost", database="mydatabase", user="myuser", password="mypassword")
+df = pd.read_sql("SELECT * FROM iris_data ORDER BY id DESC LIMIT 100", db_connect)
+df.head(5)
+```
+```
+(base) ihuijin-ui-MacBook-Air:code lee***REMOVED***$ python3 2_db_train.py
+      id                  timestamp  ...  petal_width  target
+0  38122 2023-08-10 08:22:54.053846  ...          0.2       0
+1  38121 2023-08-10 08:22:53.047250  ...          0.2       0
+2  38120 2023-08-10 08:22:52.040039  ...          2.1       2
+3  38119 2023-08-10 08:22:51.031754  ...          0.3       0
+4  38118 2023-08-10 08:22:50.024209  ...          1.5       1
+
+[5 rows x 7 columns]
+```
+
+- 전체 코드는 다음과 같다.
+```python
+# db_train.py
+import joblib
+import pandas as pd
+import psycopg2
+from sklearn.metrics import accuracy_score
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import Pipeline
+from sklearn.svm import SVC
+
+# 1. get data
+db_connect = psycopg2.connect(host="localhost", database="mydatabase", user="myuser", password="mypassword")
+df = pd.read_sql("SELECT * FROM iris_data ORDER BY id DESC LIMIT 100", db_connect)
+X = df.drop(["id", "timestamp", "target"], axis="columns")
+y = df["target"]
+X_train, X_valid, y_train, y_valid = train_test_split(X, y, train_size=0.8, random_state=2022)
+
+# 2. model development and train
+model_pipeline = Pipeline([("scaler", StandardScaler()), ("svc", SVC())])
+model_pipeline.fit(X_train, y_train)
+
+train_pred = model_pipeline.predict(X_train)
+valid_pred = model_pipeline.predict(X_valid)
+
+train_acc = accuracy_score(y_true=y_train, y_pred=train_pred)
+valid_acc = accuracy_score(y_true=y_valid, y_pred=valid_pred)
+
+print("Train Accuracy :", train_acc)
+print("Valid Accuracy :", valid_acc)
+
+# 3. save model
+joblib.dump(model_pipeline, "db_pipeline.joblib")
+
+# 4. save data
+df.to_csv("data.csv", index=False)
+```
+
+### 2) validate_save_model
+앞선 챕터에서 저장된 모델을 검증하는 base_validate_save_model.py 를 수정해 db_validate_save_model.py 로 저장한다. 그리고 # 1. reproduce data 에서 저장된 데이터를 불러오도록 수정한다.
+
+```python
+# db_validate_save_model.py
+import joblib
+import pandas as pd
+from sklearn.metrics import accuracy_score
+from sklearn.model_selection import train_test_split
+
+# 1. reproduce data
+df = pd.read_csv("data.csv")
+X = df.drop(["id", "timestamp", "target"], axis="columns")
+y = df["target"]
+X_train, X_valid, y_train, y_valid = train_test_split(X, y, train_size=0.8, random_state=2022)
+
+# 2. load model
+pipeline_load = joblib.load("db_pipeline.joblib")
+
+# 3. validate
+load_train_pred = pipeline_load.predict(X_train)
+load_valid_pred = pipeline_load.predict(X_valid)
+
+load_train_acc = accuracy_score(y_true=y_train, y_pred=load_train_pred)
+load_valid_acc = accuracy_score(y_true=y_valid, y_pred=load_valid_pred)
+
+print("Load Model Train Accuracy :", load_train_acc)
+print("Load Model Valid Accuracy :", load_valid_acc)
+```
+
