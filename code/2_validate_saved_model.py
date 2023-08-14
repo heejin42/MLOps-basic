@@ -9,7 +9,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.svm import SVC
 
 # 1. get data
-db_connect = psycopg2.connect(host="localhost", database="mydatabase", user="***REMOVED***", password="***REMOVED***")
+db_connect = psycopg2.connect(host="localhost", database="mydatabase", user="heejin", password="lhj6843*")
 df = pd.read_sql("SELECT * FROM iris_data ORDER BY id DESC LIMIT 100", db_connect)
 X = df.drop(["id", "timestamp", "target"], axis="columns")
 y = df["target"]

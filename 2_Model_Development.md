@@ -213,7 +213,7 @@ df = pd.read_sql("SELECT * FROM iris_data ORDER BY id DESC LIMIT 100", db_connec
 df.head(5)
 ```
 ```
-(base) ihuijin-ui-MacBook-Air:code lee***REMOVED***$ python3 2_db_train.py
+(base) ihuijin-ui-MacBook-Air:code leeheejin$ python3 2_db_train.py
       id                  timestamp  ...  petal_width  target
 0  38122 2023-08-10 08:22:54.053846  ...          0.2       0
 1  38121 2023-08-10 08:22:53.047250  ...          0.2       0

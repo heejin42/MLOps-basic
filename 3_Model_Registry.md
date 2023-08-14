@@ -36,7 +36,7 @@ MLflow 구성 요소를 이해하고, Docker Compose를 이용해 실제 서비�
                 POSTGRES_PASSWORD: mlflowpw
                 POSTGRES_DB: mlflowdatabase
             healthcheck:
-                test: ["CMD", "pg_isready", "-q", "-U", "mlflow***REMOVED***", "-d", "mlflowdatabase"]
+                test: ["CMD", "pg_isready", "-q", "-U", "mlflowheejin", "-d", "mlflowdatabase"]
                 interval: 10s
                 timeout: 5s
                 retries: 5

@@ -43,7 +43,7 @@ postgres:14.0 : 사용할 이미지를 지정한다.
 docker run -d \
 > --name postgres-server \
 > -p 5432:5432 \
-> -e POSTGRES_USER=***REMOVED*** \
+> -e POSTGRES_USER=heejin \
 > -e POSTGRES_PASSWORD=password \
 > -e POSTGRES_DB=mydatabase \
 > postgres:14.0
@@ -63,7 +63,7 @@ PostgreSQL DB 서버를 확인할 때 사용하는 CLI 툴인 psql을 설치한�
 
 PostgreSQL Version - 15.3 / Mac OS X 로 설치하였다. 그 다음 아래 커맨드로 psql을 통해 postgreSQL DB 서버로 접속한다.   
 ```python
-PGPASSWORD=password psql -h localhost -p 5432 -U ***REMOVED*** -d mydatabase
+PGPASSWORD=password psql -h localhost -p 5432 -U heejin -d mydatabase
 ```
 아래와 같은 출력을 확인할 수 있다.   
 ```
@@ -74,7 +74,7 @@ mydatabase=# \du
                                    List of roles
  Role name |                         Attributes                         | Member of 
 -----------+------------------------------------------------------------+-----------
- ***REMOVED***    | Superuser, Create role, Create DB, Replication, Bypass RLS | {}
+ heejin    | Superuser, Create role, Create DB, Replication, Bypass RLS | {}
 
 mydatabase=# 
 ```
@@ -118,8 +118,8 @@ psycopg2로 DB 접근하려면 connect 함수를 이용한다. db_connect이라�
 import psycopg2
 
 db_connect = psycopg2.connect(
-    user="***REMOVED***",
-    password="***REMOVED***",
+    user="heejin",
+    password="lhj6843*",
     host="localhost",
     port=5432,
     database="mydatabase",
@@ -229,7 +229,7 @@ if __name__ == "__main__":
 
 1) psql로 DB 접속하기   
 ```
-PGPASSWORD=password psql -h localhost -p 5432 -U ***REMOVED*** -d mydatabase
+PGPASSWORD=password psql -h localhost -p 5432 -U heejin -d mydatabase
 ```
 2) \d 를 입력해 생성된 테이블 목록을 확인하면 아래와 같이 생성되있을 것이다.   
 ```
@@ -240,8 +240,8 @@ mydatabase=# \d
                List of relations
  Schema |       Name       |   Type   | Owner  
 --------+------------------+----------+--------
- public | iris_data        | table    | ***REMOVED***
- public | iris_data_id_seq | sequence | ***REMOVED***
+ public | iris_data        | table    | heejin
+ public | iris_data_id_seq | sequence | heejin
 (2 rows)
 ```
 
@@ -281,7 +281,7 @@ def insert_data(db_connect, data):
 3) 확인하기      
 위의 과정을 하나의 파이썬 파일 data_insertion.py로 작성하고 실행한 다음, psql로 DB 서버 접속하여 확인해보면 데이터가 한줄 입력된 것을 확인할 수 있다.
 ```
-    PGPASSWORD=password psql -h localhost -p 5432 -U ***REMOVED*** -d mydatabase
+    PGPASSWORD=password psql -h localhost -p 5432 -U heejin -d mydatabase
 ```
 ```mysql
 select * from iris_data;
@@ -410,7 +410,7 @@ docker run -d \
 다시 psql 을 이용하여 DB 에 접속해서 데이터를 확인해보면 실시간으로 입력되고 있는 것을 확인할 수 있다.
 
 ```
-    PGPASSWORD=password psql -h localhost -p 5432 -U ***REMOVED*** -d mydatabase
+    PGPASSWORD=password psql -h localhost -p 5432 -U heejin -d mydatabase
 ```
 ```
 mydatabase=# select * from iris_data;
@@ -550,7 +550,7 @@ docker compose up -d
 
 ### 네트워크 확인
 ```
-(base) ihuijin-ui-MacBook-Air:MLOps-basic lee***REMOVED***$ docker network ls
+(base) ihuijin-ui-MacBook-Air:MLOps-basic leeheejin$ docker network ls
 NETWORK ID     NAME            DRIVER    SCOPE
 801c384a5fd1   bridge          bridge    local
 b3aabcb80e16   host            host      local
@@ -561,7 +561,7 @@ f37593eed931   my-network      bridge    local
 
 ### 데이터 확인
 ```
-(base) ihuijin-ui-MacBook-Air:MLOps-basic lee***REMOVED***$ PGPASSWORD=password psql -h localhost -p 5432 -U ***REMOVED*** -d mydatabase
+(base) ihuijin-ui-MacBook-Air:MLOps-basic leeheejin$ PGPASSWORD=password psql -h localhost -p 5432 -U heejin -d mydatabase
 psql (14.8 (Homebrew), server 14.0 (Debian 14.0-1.pgdg110+1))
 Type "help" for help.
 
@@ -569,8 +569,8 @@ mydatabase=# \d
                List of relations
  Schema |       Name       |   Type   | Owner  
 --------+------------------+----------+--------
- public | iris_data        | table    | ***REMOVED***
- public | iris_data_id_seq | sequence | ***REMOVED***
+ public | iris_data        | table    | heejin
+ public | iris_data_id_seq | sequence | heejin
 (2 rows)
 
 mydatabase=# select * from iris_data;
@@ -592,13 +592,13 @@ mydatabase=# select * from iris_data;
 docker 컨테이너 상에서 psql 을 이용하여 DB 로 접속하는데 이 때는 호스트가 local 이 아닌 Data Generator 컨테이너에서 접속해야 하기 때문에 호스트를 localhost 에서 postgres-server 로 변경해야한다.
 
 ```
-(base) ihuijin-ui-MacBook-Air:MLOps-basic lee***REMOVED***$ docker exec -it data-generator /bin/bash
+(base) ihuijin-ui-MacBook-Air:MLOps-basic leeheejin$ docker exec -it data-generator /bin/bash
 root@9e5227b175c6:/usr/app# 
 root@9e5227b175c6:/usr/app# 
 root@9e5227b175c6:/usr/app# 
-root@9e5227b175c6:/usr/app# PGPASSWORD=password data_generator.py psql -h postgres-server -p 5432 -U ***REMOVED*** -d mydatabase
+root@9e5227b175c6:/usr/app# PGPASSWORD=password data_generator.py psql -h postgres-server -p 5432 -U heejin -d mydatabase
 bash: data_generator.py: command not found
-root@9e5227b175c6:/usr/app# PGPASSWORD=password psql -h postgres-server -p 5432 -U ***REMOVED*** -d mydatabase
+root@9e5227b175c6:/usr/app# PGPASSWORD=password psql -h postgres-server -p 5432 -U heejin -d mydatabase
 psql (15.3 (Debian 15.3-0+deb12u1), server 14.0 (Debian 14.0-1.pgdg110+1))
 Type "help" for help.
 
@@ -606,7 +606,7 @@ mydatabase=# \d
                List of relations
  Schema |       Name       |   Type   | Owner  
 --------+------------------+----------+--------
- public | iris_data        | table    | ***REMOVED***
- public | iris_data_id_seq | sequence | ***REMOVED***
+ public | iris_data        | table    | heejin
+ public | iris_data_id_seq | sequence | heejin
 (2 rows)
 ```
