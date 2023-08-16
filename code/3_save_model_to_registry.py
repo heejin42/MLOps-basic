@@ -61,3 +61,9 @@ with mlflow.start_run():
     
 # 4. save date
 df.to_csv("data.csv", index=False)
+
+코드를 실행하기 위해서는 model-name과 run-id 정보를 줘야한다.
+```
+python load_model_from_registry.py --model-name "sk_model" --run-id "RUN_ID"
+# python3 3_load_model_from_registry.py --model-name "sk_model" --run-id "c175dd75b5d948e48aec04912765efe3"
+```
