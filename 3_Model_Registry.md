@@ -49,7 +49,8 @@ MLflow 구성 요소를 이해하고, Docker Compose를 이용해 실제 서비�
     - MLflow에서 학습된 모델을 저장하는 Model Registry로써 이용하는 스토리지 서비스   
     - 기본적인 파일 시스템보다 체계적으로 관리할 수 있고 외부에 있는 스토리지 서버도 사용할 수 있다.   
 
-- **MinIO**   
+- **MinIO**  
+    - Minio는 경량 Amazon S3 호환 오브젝트 스토리지 서버로 고성능 분산 처리를 통해 대규모의 프라이빗 클라우드 인프라용으로 사용할 수 있도록 설계되었다. 자세한 설명은 ![링크](https://www.ibm.com/docs/ko/cloud-private/3.2.x?topic=private-minio)에서 확인할 수 있다.
     - Artifact Store로 MiniIO 서버를 이용하는 이유는 다음과 같다.   
         - S3를 대체할 수 있는 오픈 소스 고성능 개체 스토리지다.
         - AWS S3의 API와도 호환이 되어서 SDK도 동일하게 사용할 수 있다.   
@@ -168,3 +169,250 @@ d3d68d13ba44   minio/minio                 "/usr/bin/docker-ent…"   2 minutes 
 - http://localhost:9001/ 에 접속해서 MinIO 서버 동작을 확인   
 
 
+-------------------------
+
+
+# 실습 - 2
+## Save Model from Registry
+이번 실습에서는 모델을 학습하고 MLflow 서버에 저장해보겠다. 그 과정에서 MLflow의 모델 저장 구조를 이해해볼 것이다. 
+먼저 필요한 패키지를 설치하자.
+```
+pip install boto3==1.26.8 mlflow==1.30.0 scikit-learn
+```
+
+### 1) 모델 학습
+2_Model Development 파트의 세번째 실습에서 작성한 db_train.py 코드를 활용해 모델을 업로드하는 코드를 작성해볼 것이다. 기존 코드에서 MLflow와 통신하기 위한 환경 변수를 추가해야 하며, 모델을 mlflow에 저장하는 코드를 추가해야 한다. 
+[기존코드]
+```python
+import pandas as pd
+import psycopg2
+from sklearn.model_selection import train_test_split
+
+db_connect = psycopg2.connect(host="localhost", database="mydatabase", user="heejin", password
+                              ="lhj6843*")
+df = pd.read_sql("SELECT * FROM iris_data ORDER BY id DESC LIMIT 100", db_connect)
+X = df.drop(["id", "timestamp", "target"], axis="columns")
+y = df["target"]
+X_train, X_valid, y_train, y_valid = train_test_split(X, y, train_size=0.8, random_state=2022))
+```
+
+**환경 변수 추가**
+```python
+import os
+# 모델을 저장할 스토리지 주소 = MinIO api 서버 주소
+os.environ["MLFLOW_S3_ENDPOINT_URL"] = "http://localhost:9000"
+# 정보를 저장하기 위해 연결할 mlflow 서버 주소
+os.environ["MLFLOW_TRACKING_URI"] = "http://localhost:5001"
+# MinIO에 접근하기 위한 아이디
+os.environ["AWS_ACCESS_KEY_ID"] = "minioheejin"
+# MinIO에 접근하기 위한 비밀번호
+os.environ["AWS_SECRET_ACCESS_KEY"] = "minio6843*"
+```
+
+**저장 기능 추가**
+MLflow는 정보를 저장하기 위해 experiment와 run을 사용한다.    
+- experiment:  MLflow 에서 정보를 관리하기 위해 나누는 일종의 directory이다. BERT, ResNet 과 같이 특정 이름을 통해 생성 할 수 있으며, 생성하지 않고 MLflow 에 정보를 저장하는 경우 Default 라는 이름의 experiment가 저장된다.
+- run: experiment에 저장되는 모델의 실험 결과로 해당 run 에 실제 정보들이 저장되게 되며, experiment/run의 구조를 갖는다.   
+MLflow는 저장에 관련된 스트립트를 실행할 때 명시된 experiment에 run을 동적으로 생성한다. 이때 각각의 run은 run_id를 부여받으며, 이 아이디를 통해 저장된 후에도 해당 정보에 접근할 수 있다. 
+
+먼저 MLflow에서 모델을 저장할 때 이름을 설정하여 관리하기 떼문에 모델의 이름을 설정할 외부 변수를 만들어주자   
+```python
+from argparser import ArgumentParser
+parser = ArqumentParser()
+parser.add_argument("--model-name", dest="model_name", type=str, args=parser.parse_args())
+```
+
+그 다음으로는 experiment를 설정하겠다. mlflow의 set_experiment 함수는 experiment를 생성하거나 이미 존재하는 experiment를 사용한다.
+```python
+mlflow.set_experiment("new_exp")
+```
+
+추후에 잘못된 정보가 들어올 경우 에러를 발생시키기 위해 입력값 정보들을 설정한다.
+```python
+signature = mlflow.models.signature.infer_signature(model_input=X_train, model_output=train_pred))
+input_sample = X_train.iloc[:10]
+```
+
+run을 생성하고 정보를 저장한다.
+- mlflow.log_metrics: 모델의 결과 metrics를 dictionary 형태로 입력해 생성된 run 에 저장한다.
+- mlflow.sklearn.log_model: sklearn 의 모델은 mlflow.sklearn를 사용해 업로드한다. 학습된 모델 결과물이 sklearn 객체일 경우 [MLFlow Storage Format]의 구조로 run에 저장한다.
+```python
+with mlflow.start_run():
+    mlflow.log_metrics({"train_acc":train_acc, "valid_acc":valid_acc})
+    mlflow.sklearn.log_model(
+        sk_model=model_pipeline,
+        artifact_path=args.model_name,
+        signature=signature,
+        input_example=input_sample,
+    )
+```
+
+모델이 저장된 구조는 다음과 같다.
+```python
+# Directory written by mlflow.sklearn.save_model(model, "sk_model")
+
+sk_model/
+├── MLmodel
+├── model.pkl
+├── conda.yaml
+├── python_env.yaml
+└── requirements.txt
+```
+
+### 2) MLflow 서버에 저장하고 확인하기
+완성된 코드를 실행한다.
+```python
+import os
+from argparse import ArgumentParser
+
+import mlflow
+import pandas as pd
+import psycopg2
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.svm import SVC
+
+
+# 모델을 저장할 스토리지 주소 = MinIO api 서버 주소
+os.environ["MLFLOW_S3_ENDPOINT_URL"] = "http://localhost:9000"
+# 정보를 저장하기 위해 연결할 mlflow 서버 주소
+os.environ["MLFLOW_TRACKING_URI"] = "http://localhost:5001"
+# MinIO에 접근하기 위한 아이디
+os.environ["AWS_ACCESS_KEY_ID"] = "minioheejin"
+# MinIO에 접근하기 위한 비밀번호
+os.environ["AWS_SECRET_ACCESS_KEY"] = "minio6843*"
+
+# 1. get data
+db_connect = psycopg2.connect(user="heejin", password="lhj6843*", host="localhost", port=5432, database="mydatabase")
+df = pd.read_sql("SELECT * FROM iris_data ORDER BY id DESC LIMIT 100", db_connect)
+X = df.drop(["id", "timestamp", "target"], axis="columns")
+y = df["target"]
+X_train, X_valid, y_train, y_valid = train_test_split(X, y, train_size=0.8, random_state=2022)
+
+# 2. model development and train
+model_pipeline = Pipeline([("scaler", StandardScaler()), ("svc", SVC())])
+model_pipeline.fit(X_train, y_train)
+
+train_pred = model_pipeline.predict(X_train)
+valid_pred = model_pipeline.predict(X_valid)
+
+train_acc = accuracy_score(y_true=y_train, y_pred=train_pred)
+valid_acc = accuracy_score(y_true=y_valid, y_pred=valid_pred)
+
+print("Train Accuracy :", train_acc)
+print("Valid Accuracy :", valid_acc)
+
+# 3. save model
+parser = ArgumentParser()
+parser.add_argument("--model-name", dest="model_name", type=str, default="sk_model")
+args = parser.parse_args()
+
+mlflow.set_experiment("new-exp")
+
+signature = mlflow.models.signature.infer_signature(model_input=X_train, model_output=y_train)
+input_sample = X_train.iloc[:10]
+
+with mlflow.start_run():
+    mlflow.log_metrics({"train_acc":train_acc, "valid_acc":valid_acc})
+    mlflow.sklearn.log_model(
+        sk_model=model_pipeline,
+        artifact_path=args.model_name,
+        signature=signature,
+        input_example=input_sample
+    )
+    
+# 4. save date
+df.to_csv("data.csv", index=False)
+```
+
+```
+python save_model_to_registry.py --model-name "sk_model"
+```
+
+코드 실행의 결과를 localhost:5001 (MLflow 서버) 에서 확인한다.
+![img](./img/3_mlflow_capture1.png)
+![img](./img/3_mlflow_capture2.png)
+
+코드 실행의 결과를 localhost:9001 (MinIO서버) 에서 확인한다.
+![img](./img/3_mlflow_capture.png)
+
+
+
+-------------------
+
+
+# 실습 - 3
+## Load Model from Registry
+이번에는 MLflow에 저장해놓은 모델을 불러와서 추론하고 결과를 확인해보겠다. 
+
+먼저 학습이 끝나서 저장되어 있는 모델을 MLflow의 built-in method를 사용해 MLflow에서 불러올 것이다.
+그리고 불러온 모델을 이용해 학습 데이터의 결과를 추론해볼 것이다.
+
+![img](./img/MLflow-model-load-diagram.png)
+
+### 1) 환경 변수 설정
+앞의 실습과 마찬가지로 MLflow 서버에 접근하기 위한 환경 변수를 설정한다.
+```python
+import os
+
+os.environ["MLFLOW_S3_ENDPOINT_URL"] = "http://localhost:9000"
+os.environ["MLFLOW_TRACKING_URI"] = "http://localhost:5001"
+os.environ["AWS_ACCESS_KEY_ID"] = "minio"
+os.environ["AWS_SECRET_ACCESS_KEY"] = "miniostorage"
+```
+
+### 2_ 모델 불러오기
+불러올 모델이 sklearn 모델이기 때문에 mlflow.sklearn.load_model 함수로 저장된 모델을 불러온다. 모델을 가지고 있는 run_id와 모델을 저장할 때 설정했던 이름을 받아 외부 변수로 설정해야 한다. 그 다음 runs:/run_id/model_name의 형식으로 문자열을 만들어주고 이 문자열을 mlflow.sklearn.load_model에 입력으로 넣어준다. 
+```python
+parser = ArgumentParser()
+parser.add_argument("--run_id", dest="run_id", type=str)
+parser.add_argument("--model-name", dest="model_name", type=str, default="sk_model")
+args = parser.parse_args()
+
+model_pipeline = mlflow.sklearn.load_model(f"runs:/{args.run_id}/{args.model_name}")
+
+print(model_pipeline)
+```
+
+코드를 실행하기 위해서는 model-name과 run-id 정보를 줘야한다.
+```
+python load_model_from_registry.py --model-name "sk_model" --run-id "RUN_ID"
+# python3 3_load_model_from_registry.py --model-name "sk_model" --run-id "c175dd75b5d948e48aec04912765efe3"
+```
+
+
+### 3) pyfunc 모델 불러오기
+MLflow에서는 지정한 방식에 따라 저장되어 있는 모델을 mlflow.pyfunc.load_model을 이용해 쉽게 불러올 수 있다. 이때 로드된 모델은 기존의 클래스가 아니라 mlflow.pyfunc.PyFuncModel 라는 새로 정희된 클래스로 불러와지며 이는 결과 추론 기능이 predict method를 호출하도록 wrapping된 클래스다. 
+```python
+model_pipeline = mlflow.pyfunc.load_model(f"runs:/{args.run_id}/{args.model_name}")
+# print(model_pipeline)
+# mlflow.pyfunc.loaded_model:
+#   artifact_path: sk_model
+#   flavor: mlflow.sklearn
+#   run_id: c175dd75b5d948e48aec04912765efe3
+```
+
+### 4) 추론 코드 작성하기
+먼저 앞의 채버에서 저장했던 데이터인 data.csv.를 불러와서 학습 조건과 같도록 불필요한 컬럼은 제거하고 학습 데이터와 평가 데이터로 분리한다.
+```python
+df = pd.read_csv(data.csv)
+X = df.drop(["id", "timestamp", "target"], axis="columns")
+y = df["target"]
+X_train, X_valid, y_train, y_valid = train_test_split(X, y, train_size=0.8, random_state=2022)
+```
+
+그 다음으로는 2.Model Development 파트와 같이 결과를 계산하고 출력한다.
+```python
+train_pred = model_pipeline.predict(X_train)
+valid_pred = model_pipeline_predict(X_valid)
+
+train_acc = accuracy_score(y_true=y_train, y_tred=train_pred)
+valid_acc = accuracy_score(y_true=y_valid, y_tred=valid_pred)
+
+print("Train Accuracy :", train_acc)
+print("Valid Accuracy :", valid_acc)
+# Train Accuracy : 0.9625
+# Valid Accuracy : 0.95
+```
