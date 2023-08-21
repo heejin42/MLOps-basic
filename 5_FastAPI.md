@@ -155,3 +155,175 @@ def read_user_item(user_id: int, item_id: str, q: Union[str, None] = None, short
 * http://localhost:8000/users/3/items/foo-item?short=True
 * http://localhost:8000/users/3/items/foo-item?q=hello
 * http://localhost:8000/users/3/items/foo-item
+
+
+----------------------
+
+
+# 실습 - 2
+## FastAPI CRUD
+이번에는 fastapi를 활용해 CRUD(Create, Read, Update, Delete)를 수행하도록 api를 작성해보겠다. Path Parameter와 Query Parameter의 차이점을 확인할 수 있다.
+
+### 1) 명세서 작성
+**(a) Path Parameter**
+- Create: 이름과 별명을 입력하여 사용자를 생성한다.   
+   
+POST /users/name/{name}/nickname/{nickname}
+```
+Response Body
+{
+ “status”: “success” 
+}
+```
+- Read: 이름을 입력하여 해당 이름을 가진 사용자의 별명을 반환한다.
+   
+GET /users/name/{name}
+```
+Response Body
+{
+ “nickname”: “world” 
+}
+```
+
+- Update: 이름과 새로운 별명을 입력하여 해당 이름을 가진 사용자의 별명을 업데이트한다.
+   
+PUT /users/name/{name}/nickname/{nickname}
+```
+Response Body
+{
+ “status”: “success” 
+}
+```
+
+- Delete: 이름을 입력하여 해당 이름을 가진 사용자의 정보를 삭제한다.
+   
+DELETE /users/name/{name}
+```
+Response Body
+{
+ “status”: “success” 
+}
+```
+
+**(b) Query Parameter**
+- Create: 이름과 별명을 입력하여 사용자를 생성한다.   
+   
+POST /users?name=hello&nickname=world
+```
+Response Body
+{
+ “status”: “success” 
+}
+```
+- Read: 이름을 입력하여 해당 이름을 가진 사용자의 별명을 반환한다.
+   
+GET /users?name=hello
+```
+Response Body
+{
+ “nickname”: “world” 
+}
+```
+
+- Update: 이름과 새로운 별명을 입력하여 해당 이름을 가진 사용자의 별명을 업데이트한다.
+   
+PUT /users?name=hello&nickname=world2
+```
+Response Body
+{
+ “status”: “success” 
+}
+```
+
+- Delete: 이름을 입력하여 해당 이름을 가진 사용자의 정보를 삭제한다.
+   
+DELETE /users?name=hello
+```
+Response Body
+{
+ “status”: “success” 
+}
+```
+### 2) API 구현
+작성한 명세서를 FastAPI 를 이용해 구현한다.
+먼저 FastAPI 클래스의 인스턴스를 생성한 후 입력받은 데이터를 저장할 수 있도록 USER_DB 를 생성한다. 만약 메모리에 존재하지 않는 이름에 대한 요청이 들어온 경우에 에러를 발생할 수 있도록 HTTPException 을 이용하여 NAME_NOT_FOUND 를 선언한다. 그리고 명세한 CRUD 기능을 추가로 작성한다.   
+
+```python
+from fastapi import FastAPI, HTTPException
+
+app = FastAPI()
+USER_DB = {}
+NAME_NOT_FOUND = HTTPException(status_code=400, detail="Name not found.")
+```
+**(a) Path Parameter**
+```python
+@app.post("/users/name/{name}/nickname/{nickname}")
+def create_user(name: str, nickname: str):
+    USER_DB[name] = nickname
+    return {"status": "success"}
+
+
+@app.get("/users/name/{name}")
+def read_user(name: str):
+    if name not in USER_DB:
+        raise NAME_NOT_FOUND
+    return {"nickname": USER_DB[name]}
+
+
+@app.put("/users/name/{name}/nickname/{nickname}")
+def update_user(name: str, nickname: str):
+    if name not in USER_DB:
+        raise NAME_NOT_FOUND
+    USER_DB[name] = nickname
+    return {"status": "success"}
+
+
+@app.delete("/users/name/{name}")
+def delete_user(name: str):
+    if name not in USER_DB:
+        raise NAME_NOT_FOUND
+    del USER_DB[name]
+    return {"status": "success"}
+```
+
+**(b) Query Parameter**
+```python
+@app.post("/users")
+def create_user(name: str, nickname: str):
+    USER_DB[name] = nickname
+    return {"status": "success"}
+
+
+@app.get("/users")
+def read_user(name: str):
+    if name not in USER_DB:
+        raise NAME_NOT_FOUND
+    return {"nickname": USER_DB[name]}
+
+
+@app.put("/users")
+def update_user(name: str, nickname: str):
+    if name not in USER_DB:
+        raise NAME_NOT_FOUND
+    USER_DB[name] = nickname
+    return {"status": "success"}
+
+
+@app.delete("/users")
+def delete_user(name: str):
+    if name not in USER_DB:
+        raise NAME_NOT_FOUND
+    del USER_DB[name]
+    return {"status": "success"}
+```
+
+### 3) 작동 확인
+```
+uvicorn crud_path:app --reload
+uvicorn crud_query:app --reload
+```
+다음으로 http://localhost:8000/docs 에 접속하면 다음과 같은 Swagger UI 화면을 볼 수 있고, 각 http method에 파라미터가 포함되어 있는 걸 확인할 수 있다.
+
+**Path Parameter vs Query Parameter**
+Path Parameter를 이용한 API에서는 path에 변수의 값을 저장하여 함수에 전달한다.
+반면, Query Parameter를 이용한 API에서는 path 에 변수의 값을 저장하지 않고 데이터를 전달한다.
