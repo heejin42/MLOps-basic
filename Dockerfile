@@ -1,14 +1,10 @@
 FROM amd64/python:3.9-slim
 
-RUN apt-get update && apt-get install -y \
-    git \
-    wget \
-    && rm -rf /var/lib/apt/lists/*
+WORKDIR /usr/app
 
-RUN pip install -U pip &&\
-    pip install boto3==1.26.8 mlflow==1.30.0 psycopg2-binary
+RUN pip install -U pip \
+    && pip install "fastapi[all]"
 
-RUN cd /tmp && \
-    wget https://dl.min.io/client/mc/release/linux-amd64/mc && \
-    chmod +x mc && \
-    mv mc /usr/bin/mc
+COPY 5_crud_pydantic.py 5_crud_pydantic.py
+
+CMD ["uvicorn", "5_crud_pydantic:app", "--host", "0.0.0.0", "--reload"]

@@ -327,3 +327,133 @@ uvicorn crud_query:app --reload
 **Path Parameter vs Query Parameter**
 Path Parameter를 이용한 API에서는 path에 변수의 값을 저장하여 함수에 전달한다.
 반면, Query Parameter를 이용한 API에서는 path 에 변수의 값을 저장하지 않고 데이터를 전달한다.
+
+
+-----------------------
+
+
+# 실습 - 3
+## FastAPI CRUD (Pydantic)
+이번에는 앞서 입력으로 받는 부분을 pydantic의 basemodel을 이용하는 것으로 수정해볼 것이다. Pydantic을 사용하기 전과 후에 어떠한 차이가 있는지 알아보자.   
+
+### Pydantic 이란?
+pydantic은 타입 애너테이션을 사용해서 데이터를 검증하고 설정들을 관리하는 라이브러리이다. pydantic은 런타임 환경에서 타입을 강제하고 타입이 유효하지 않을 때 에러를 발생시켜준다. FastAPI, Project Jupyter, Microsoft, AWS 등 많은 곳에서 사용된다.   
+
+Request Body는 client에서 API로 전송하는 데이터를 의미한다. 반대로 Response Body는 API가 client로 전송하는 데이터를 의미한다.
+
+이렇게 client와 API 사이에 데이터를 주고 받을 때 데이터의 형식을 지정해 줄 수 있는데, 이를 위해 Pydantic Model을 사용할 수 있다.
+
+### 코드 작성
+```python
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+
+app = FastAPI()
+USER_DB = {}
+NAME_NOT_FOUND = HTTPException(status_code=400, detail="Name not found.")
+
+class CreatIn(BaseModel):
+    name: str
+    nickname: str
+
+class CreateOut(BaseModel):
+    status: str
+    id: int
+
+@app.post("/users", response_model=CreateOut)
+def create_user(user: CreateIn) -> CreateOut:
+    USER_DB[user.name] = user.nickname
+    return CreateOut(status="success", id=len(USER_DB))
+
+@app.get("/users")
+def read_user(name: str):
+    if name not in USER_DB:
+        raise NAME_NOT_FOUND
+    return {"nickname": USER_DB[name]}
+
+
+@app.put("/users")
+def update_user(name: str, nickname: str):
+    if name not in USER_DB:
+        raise NAME_NOT_FOUND
+    USER_DB[name] = nickname
+    return {"status": "success"}
+
+
+@app.delete("/users")
+def delete_user(name: str):
+    if name not in USER_DB:
+        raise NAME_NOT_FOUND
+    del USER_DB[name]
+    return {"status": "success"}
+```
+
+create_user 함수는 입력으로 CreateIn 모델을 받고, CreateOut 모델을 반환함으로써 request 할 때와 response 할 때 주고받는 데이터에 다른 변수를 사용할 수 있다.
+
+### 실행
+```
+uvicorn crud_pydantic:app --reload
+```
+
+
+-----------------------
+
+
+# 실습 - 4
+## FastAPI on Docker
+이번에는 앞서 작성한 API를 docker를 이용하여 실행해보겠다. 
+
+### 1) Dockerfile 작성
+- RUN: pip을 먼저 업데이트한 후에 fastapi[all]을 설치한다.
+- COPY: Pydantic을 이용한 api 코드를 컨테이너 내부로 복사한다.
+- CMD: 컨테이너가 실행될 때 수행할 명령어의 기본값을 적어준다. 여기서는 uvicorn을 이용해 API 코드 안의 객체 app을 실행시킨다.
+
+```
+FROM amd64/python:3.9-slim
+
+WORKDIR /usr/app
+
+RUN pip install -U pip \
+    && pip install "fastapi[all]"
+
+COPY 5_crud_pydantic.py 5_crud_pydantic.py
+
+CMD ["uvicorn", "crud_pydantic:app", "--host", "0.0.0.0", "--reload"]
+```
+
+### 2) Build & Run
+```
+docker build -t part5-api-server .
+```
+먼저 위의 명령어로 part5-api-server 라는 이름의 이미지를 빌드하고 그 이미지를 실행해보겠다.
+- --name: 컨테이너의 이름 설정
+- -p: 포트 포워딩을 8000:8000으로 설정해준다.
+```
+docker run -d \
+  --name api-server \
+  -p 8000:8000 \
+  part5-api-server
+```
+
+### 3) 확인
+먼저 docker ps 명령어로 컨테이너가 잘 실행되고 있는지 확인한다. 
+```
+(base) ihuijin-ui-MacBook-Air:MLOps-basic leeheejin$ docker psCONTAINER ID   IMAGE              COMMAND                  CREATED          STATUS          PORTS                    NAMES
+c420ccea0be2   part5-api-server   "uvicorn crud_pydant…"   52 seconds ago   Up 51 seconds   0.0.0.0:8000->8000/tcp   api-server
+```
+
+그럼 API 서버도 잘 작성하고 있는지 확인해보자. API 서버 컨테이너를 실행할 때 포트 포워딩을 8000:8000 으로 했으므로 8000번 포트로 접속하면 API 서버로 접속할 수 있다. http://localhost:8000/docs 에 접속하면 다음과 같이 접속이 되는 것을 확인할 수 있다.
+
+![img](./img/docker-fastapi.png)
+
+
+**도커 컨테이너 종료**
+```
+docker rm --force api-server
+```
+
+**도커 이미지 삭제**
+```
+docker images -a
+docker rmi name
+```
