@@ -128,3 +128,85 @@ uvicorn app:app --reload
 이제 http://localhost:8000/docs (FastAPI - Swagger UI) 에 접속하여 작동 테스트를 해보자. 
 
 ![img](./img/api-serving-3.png)
+
+
+--------------------
+
+
+# 실습 - 2
+## Model API on Docker Compose
+이번에는 앞서 작성한 API를 실행할 수 있는 Dockerfile을 작성하고 Docker Compose 파일을 작성해 API 서버를 띄워보겠다.
+![img](./img/api-serving-4.png)
+
+### 1. Dockerfile 작성
+
+```
+FROM amd64/python:3.9-slim
+
+WORKDIR /usr/app
+
+RUN pip install -U pip &&\
+    pip install mlflow==1.30.0 pandas scikit-learn "fastapi[all]"
+
+COPY schemas.py schemas.py
+COPY app.py app.py
+COPY sk_model/ sk_model/
+
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--reload"]
+```
+
+
+### 2. Docker Compose 작성
+```
+version: "3"
+
+services:
+  api-with-model:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: api-with-model
+    ports:
+      - 8000:8000
+    healthcheck:
+      test:
+        - CMD
+        - curl -X POST http://localhost:8000/predict
+        - -H
+        - "Content-Type: application/json"
+        - -d
+        - '{"sepal_length": 6.7, "sepal_width": 3.3, "petal_length": 5.7, "petal_width": 2.1}'
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  default:
+    name: mlops-network
+    external: true
+```
+
+이제 완성된 Docker Compose 파일을 다음의 명령어를 통해 실행하여 Model API 서비스를 작동시킨다.
+```
+docker compose up -d
+```
+컨테이너가 잘 실행되고 있는지 확인해보면 다음과 같이 api-with-model 이라는 이름의 컨테이너가 실행되고 있음을 확인할 수 있다.
+```
+docker ps
+CONTAINER ID   IMAGE                COMMAND                  CREATED         STATUS                 PORTS                              NAMES
+a88b1a6cff44   part6-api-with-model   "uvicorn app:app --h…"   5 seconds ago   Up 4 seconds
+```
+
+
+
+### 3. API 서버 작동 확인
+
+API 서버 컨테이너를 실행할 때 포트 포워딩을 8000:8000 으로 했으므로 8000번 포트로 접속하면 API 서버로 접속할 수 있다. http://localhost:8000/docs 에 접속하여 Request Body 의 형태에 알맞게 데이터를 전달해주면 Response Body 로 inference 결과가 잘 반환되는 것을 확인할 수 있다.    
+또한 FastAPI 의 Swagger UI 를 이용하지 않고 다음과 같이 curl 을 이용하여 API 가 잘 작동하는지 확인하는 방법도 있다. 
+```
+curl -X POST http://localhost:8000/predict -H "Content-Type: application/json" -d '{"sepal_length": 6.7, "sepal_width": 3.3, "petal_length": 5.7, "petal_width": 2.1}'
+```
+위의 명령어를 실행하면 다음과 같이 주어진 데이터에 대한 모델의 예측 결과 ({"iris_class":2}) 를 잘 반환해 주는 것을 확인할 수 있다.
+```
+{"iris_class":2}
+```
