@@ -72,3 +72,120 @@ Kafka는 Open-source Distributed Event Streaming Platform이다. 여기서 Event
 * Producer & Consumer    
   * Producer: "메시지를 생산"해서 브로커의 토픽으로 메시지를 보내는 역할을 하는 어플리케이션 또는 서버를 말한다. 데이터를 전송할 때 리더 파티션을 가지고 있는 브로커와 직접 통신하며 이후 어떤 Consumer에게 전송되는 지는 신경쓰지 않는다. 
   * Consumer: 토픽의 파티션에 저장되어 있는 "메시지를 소비"하는 역할을 하는 어플리케이션 또는 서버를 말한다. 데이터를 요청할 때 리더 파티션을 가지고 있는 브로커와 통신하여 토픽의 파티션으로부터 데이터를 가져간다. 운영 방법은 두가지가 있는데 첫번째는 토픽의 특정 파티션만 구도하는 방식, 두번째는 1개 이상의 consumer로 이루어진 consumer 그룹을 운영하는 방식이다. 어떤 Producer 에게서 메시지가 왔는지는 관심이 없고, 원하는 토픽의 파티션을 읽어서 필요한 메시지만 얻어간다. 
+
+
+
+--------------------
+
+
+# 실습 - Producer & Consumer
+Docker Compose를 이용하여 주키퍼와 브로커를 생성한다. Producer와 Consumer를 실행하여 메시지를 생성하고 확인하는 작업을 해본다.
+
+## 1. Docker Compose 파일 작성
+### Zookeeper
+주키퍼는 분산 코디네이션 서비스를 제공하는 오픈소스 프로젝트로 어플리케이션 작업 조율을 쉽게 할 수 있도록 도와준다. 기본적으로 주키퍼 서버들의 집합인 Ensemble로 구성되며 메인 역할은 분산 코디네이션 서비스다. 분산 코디네이션 서비스는 분산 시스템에서 시스템 간의 정보 공유, 상태 체크, 서버들 간 동기화를 위한 락 등을 처리해주는 서비스를 말한다. 이러한 역할을 하기 때문에 동작이 멈추지 않도록 클러스터로 구축하여 안정성을 확보하는 것이다. MLOps에서 분산 시스템을 운영하는 서버는 주키퍼이고 클라이언트는 카프카라고 이해할 수 있다. 
+
+```
+version: "3"
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.3.0
+    container_name: zookeeper
+    port:
+      - 2181:2181
+    environment:
+      ZOOKEEPER_SERVER_ID: 1
+      ZOOKEEPER_CLIENT_PORT: 2181
+```
+
+- image: 주키퍼의 이미지로 confluentinc/cp-zookeeper:7.3.0를 사용한다.
+- ZOOKEEPER_SERVER_ID: 주키퍼 클러스터에서 해당 주키퍼를 식별할 id를 지정한다. 여기서는 1을 사용하겠다.
+- ZOOKEEPER_CLIENT_PORT: 주키퍼 클라이언트의 포트를 지정한다. 여기서는 기본 주키퍼 포트인 2181을 지정하겠다.
+
+### Broker
+브로커 서비스를 띄울 때 쓰이는 요소들을 확인해서 작성해준다.
+```
+version: "3"
+services:
+  broker:
+    image: confluentinc/cp-kafka:7.3.0
+    container_name: broker
+    depends_on:
+      - zookeeper
+    ports:
+      - 9092:9092
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://broker:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+```
+- depends_on: 주키퍼가 먼저 실행된 후 다음에 브로커가 실행되어야 한다.
+- KAFKA_SERVER_ID: 브로커의 id를 지정한다. 단일 브로커에서는 없어도 무방하나 일단 1로 지정하겠다.
+- KAFKA_ZOOKEEPER_CONNECT: 브로커가 주키퍼에 연결하기 위한 주소를 지정한다. 일반적은 형식은 "주키퍼 서비스 이름 : 주키버 서비스 포트"로 작성하며 앞서 띄운 주키퍼의 이름과 포트인 "zookeeper:2181"를 입력한다. 
+- KAFKA_ADVERTISED_LISTENERS: 내부와 외부에서 접속하기 위한 리스너를 설정한다. 
+- KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 보안을 위한 protocol mapping을 설정하며 이 설정값은 KAFKA_ADVERTISED_LISTENERS 과 함께 key/value 로 매핑된다.
+- KAFKA_INTER_BROKER_LISTENER_NAME: 컨테이너 내부에서 사용할 리스너 이름을 지정한다. 앞서 internal 로 설정했던 PLAINTEXT를 입력해주겠다.
+- KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 토픽을 분산하여 저장할 Replication Factor를 설정한다. 여기서는 단일 브로커를 사용하기 때문에 1로 지정하겠다.
+- KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 카프카 클러스터가 초기에 rebalancing할 때 consumer들이 조인할 때 대기하는 시간으로 여기서는 0으로 설정해주겠다.
+
+docker compose 파일 작성을 다 했으니 아래 명령어를 활용해 정의된 서비스를 백그라운드 프로세스로 띄우겠다. 
+```
+docker compose -p part7-naive -f naive-docker-compose.yaml up -d
+```
+
+docker ps로 잘 띄워졌는지 확인해본다.
+```
+CONTAINER ID   IMAGE                             COMMAND                  CREATED          STATUS          PORTS                                        NAMES
+035f4541ac0f   confluentinc/cp-kafka:7.3.0       "/etc/confluent/dock…"   25 seconds ago   Up 22 seconds   0.0.0.0:9092->9092/tcp                       broker
+e89625eb2f69   confluentinc/cp-zookeeper:7.3.0   "/etc/confluent/dock…"   26 seconds ago   Up 23 seconds   2888/tcp, 0.0.0.0:2181->2181/tcp, 3888/tcp   zookeeper
+```
+
+
+## 2. Producer & Consumer Setup
+이번에는 토픽을 생성해보고 producer와 consumer를 생성해보겠다.
+
+### 2.1 topic 생성
+```
+docker compose -p part7-naive exec broker kafka-topics --create --topic topic-test --bootstrap-server broker:29092 --partitions 1 --replication-factor 1
+```
+* docker compose exec는 컨테이너 내에 명령어를 수행하도록 한다.
+* --create로 토픽을 생성하고, --topic으로 생성할 토픽의 이름을 지정할 수 한다.
+* --bootstrap-server는 브로커 서비스에 대한 호스트 이름과 포트를 지정한다. 앞서 docker compose로 띄웠던 브로커의 환경변수를 참고하여 설정한다.
+* --partition은 파티션의 개수를 설정하며 --replication-fator은 replication factor을 지정한다.
+
+아래 커멘드를 통해 토픽이 잘 생성되었는지와 상세 설명을 확인할 수 있다.
+```
+docker compose -p part7-naive exec broker kafka-topics --describe --topic topic-test --bootstrap-server broker:29092
+```
+
+### 2.2 Consumer 생성
+이제 토픽을 생성했으니 생성한 토픽을 사용한 consumer를 만들어보겠다. consumer를 먼저 실행하는 이유는 일반적으로 consumer가 메시지를 subcribe 하려고 대기하는 상태에서 producer가 메시지를 생성해서 보내기 때문이다.    
+
+먼저 docker compose exec 명령어를 통해 컨테이너 내부로 접속한다. 터미널이 열릴 것이다.
+```
+docker compose -p part7-naive exec broker /bin/bash
+```
+
+이후에 kafka-console-consumer 를 이용하여 topic-test 토픽을 subscribe 한다. 
+```
+kafka-console-consumer --topic topic-test --bootstrap-server broker:29092
+```
+그럼 수신을 대기하고 있는 상태가 될 것이다.
+
+
+### 2.3 Producer 생성
+마지막으로 producer를 만들어 메시지를 보낼 준비를 해보겠다. 앞에서 한 것과 같이 새로운 터미널에서 docker compose exec 명령어를 통해 컨테이너 내부로 접속한다. 그 뒤, 아래 커맨드로 topic-test 토픽에 접근해 Publish할 준비를 한다. 그럼 publish 할 수 있는 상태가 될 것이다.
+
+```
+kafka-console-producer --topic topic-test --broker-list broker:29092
+```
+
+
+### 2.4 Communicate
+producer에서 텍스트를 입력하면 consumer에서 받은 걸 확인할 수 있다.
+![img](./img/kafka_p_c.png)
