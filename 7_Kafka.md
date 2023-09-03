@@ -189,3 +189,45 @@ kafka-console-producer --topic topic-test --broker-list broker:29092
 ### 2.4 Communicate
 producer에서 텍스트를 입력하면 consumer에서 받은 걸 확인할 수 있다.
 ![img](./img/kafka_p_c.png)
+
+producer와 consumer로 아주 간단한 메시지 파이프라인을 만들어보았다.
+
+
+--------------
+
+
+# 실습 - Connect & Connector
+## 1. Connect & Connector 소개
+실제 시스템에서 producer와 consumer가 어떻게 쓰일까?
+![img](./img/7_single_kafka.png)
+어떠한 DB server1에서 DB server2로 데이터를 전달하는 시스템은 위 그림과 같을 것이다. 그렇다면 전달할 DB들이 100개 1000개, 10000개 있다면 어떨까? 그럼 아래 그림과 같이 producer와 consumer 많아져야 할 것이다.
+![img](./img/7_multi_kafka.png)
+위와 같이 매번 메시지 파이프라인 구성을 위해 producer와 consumer를 개발하는 것은 비용도 많이 들고 쉽지 않다. 따라서 더 간편하고 효율적으로 메시지 파이프라인을 구축하는 방법으로 Kafka에서는 Connect와 Connector를 제공한다.   
+
+**Connect**란?   
+-> 데이터 시스템과 kafka 간의 데이터를 확장 가능하고 안전한 방법으로 스트리밍하기 위한 도구, 프레임워크다. Connector를 정의해서 사용한다.   
+**Connector**란?   
+-> 데이터를 어디로부터 가져오고 어디에다가 전달해야하는지 정의하는 플러그인이다. 메시지 파이프라인에 대한 추상 객체이며 task들을 관리하다. 두가지 종류의 connector가 존재한다.   
+-> Source Connector: source system의 데이터를 브로커의 토픽으로 publish하는 connector로 producer의 역할이라고 이해하면 된다.   
+-> Sink Connector: 브로커의 토픽에 있는 데이터를 subcribe에서 target system에 전달하는 connector로 consumer 역할을 한다고 이해할 수 있다.   
+
+각각의 connector에 대한 설정 명세를 connect에 전달하면 connector가 구성되며, 주기적으로 메시지를 확인하여 새로운 메시지가 들어오면 파이프라인을 통해 흘려보내게 된다. 아래의 그림으로 이해할 수 있다.
+
+![img](./img/7_single_connect.png)
+![img](./img/7_multi_connect.png)
+
+보면 producer와 consumer를 일일히 만드는 것보다 Source Connector와 Sink Connector를 사용하게 되면 설정 파일만 수정하여 더 큰 개발 비용 없이 띄울 수 있게 된다. Source Connector의 경우에 Connector의 유형, 연결할 URL, user와 password, 테이블 이름, 토픽의 파티션 수, Replication Factor 수 등을 설정해주면 connect의 인스턴스로 생성된다. 훨씬 간단하게 적은 비용으로 개발할 수 있게 되는 것이다.   
+
+### Schema Registry 소개
+Connect와 함께 쓰이는 Schema Registry에 대해 알아보겠다. 앞서 말했듯이 kafka는 decoupling이라는 특징을 가지고 있어 producer와 consumer가 서로 완벽히 분리되어 있다. 또한 브로커는 메시지를 한번 저장하면 이후에는 수정할 수 없다. 이러한 특징 때문에 몇가지 문제가 발생할 수 있다. 여러 개의 producer가 브로커에 메시지를 보내고 schema를 변경하는 등을 작업을 해도 consumer는 이 상황을 알지 못하기 때문에 메시지를 구독하는 과정에서 장애가 발생할 수 있다. 또는 동일한 schema의 메시지가 계속 들어오는 경우, 같은 schema를 계속해서 저장해야하므로 불필요한 데이터 용량을 차지하게 된다.    
+이러한 구조적인 결합도를 낮추고 불필요한 데이터 용량을 줄이기 위해 kafka에서는 메시지 schema를 저장해주는 저장소인 schema registry를 사용한다. 
+
+### 작동 과정
+Kafka Connector가 만들어 내는 메시지 구조는 다음과 같다. 
+![img](./img/7_message_struct.png)
+메시지는 key와 value로 구성되어 있으며, 각 key와 value는 schema와 payload로 구성되어 있다. 
+
+![img](./img/7_schema_architecture.png)
+1. Producer 에서 Kafka 의 Serializer (또는 Converter) 에게 메시지를 보낸다.
+2. Serializer는 메시지를 받아 메시지의 schema를 Schema Registry에 보낸다.
+3. 이어서 schema ID를 받고, schema ID와 데이터를 Kafka에게 보낸다.
