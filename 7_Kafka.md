@@ -231,3 +231,162 @@ Kafka Connector가 만들어 내는 메시지 구조는 다음과 같다.
 1. Producer 에서 Kafka 의 Serializer (또는 Converter) 에게 메시지를 보낸다.
 2. Serializer는 메시지를 받아 메시지의 schema를 Schema Registry에 보낸다.
 3. 이어서 schema ID를 받고, schema ID와 데이터를 Kafka에게 보낸다.
+
+하지만 여기서 connect와 connector를 이용하면 Serializer를 직접 구현하지 않고 connect를 띄울 때 환경변수로 적어주면 돈다. 
+
+앞에서 말했던 schema 중복으로 인한 용량 문제는 schema registry에 key와 value에 명시된 스키마를 따로 저장하기 때문에 connector가 schema id만 명시하여 해결할 수 있게 된다.
+
+
+**Schema 호환성 규칙 강제**   
+schema를 등록하여 사용할 수 있지만 스키마 버전 간의 호환성을 강제하여 일종의 규칙을 세우는 것이다. 이를 통해 특정 Schema가 다른 데이터도 읽을 수 있도록 지원한다.   
+
+
+----------------
+
+# Kafka System
+## 코드 실습 
+docker compose로 Zookeeper, Broker, Schema Registry, Connect를 생성해보자. 
+
+### 0. 환경설정
+먼저 앞서 실행해놓은 producer와 consumer docker를 종료시킨다.
+
+```
+docker ps
+docker compose -p part7-naive down -v
+```
+
+### 1. 아키텍처
+이번 실습에서 다룰 서비스들의 다이어그램이다.
+![img](./img/7_kafka_system.png)
+
+- Zookeeper: 브로커 서버의 상태 감지를 위해 사용되는 주키퍼 서버
+- Broker: Source Connector에서 데이터를 받아 토픽에 저장하고 Sink Connector로 데이터를 넘겨주는 브로커 서버로 단일 브로커를 사용하겠다.
+- Schema Registry: 메시지의 schema를 저장하기 위한 서버
+- Connect: Connector를 띄우기 위한 connect 서버
+
+### 2.1 Zookeeper & Broker
+주키퍼와 브로커를 띄우는 코드는 앞에서 작성한 내용을 활용한다. 
+```
+version: "3"
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.3.0
+    container_name: zookeeper
+    ports:
+      - 2181:2181
+    environment:
+      ZOOKEEPER_SERVER_ID: 1
+      ZOOKEEPER_CLIENT_PORT: 2181
+
+  broker:
+    image: confluentinc/cp-kafka:7.3.0
+    container_name: broker
+    depends_on:
+      - zookeeper
+    ports:
+      -9092:9092
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT:://broker:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+```
+
+### 2.2 Schema Registry
+```
+version: "3"
+
+services:
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.3.0
+    container_name: schema-registry
+    depends_on:
+      - broker
+    ports:
+      - 8081:8081
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: broker:29092
+      SCHEMA_REGISTRY_LISTENERS: http://schema-registry:8081
+```
+환경 변수는 다음과 같다.
+- SCHEMA_REGISTRY_HOST_NAME: Schema Registry 의 호스트 이름을 지정한다.
+- SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: Bootstrap 으로 띄워진 브로커 서버를 지정한다. 일반적으로 브로커 서비스 이름 : 브로커 서비스 내부 포트 형식으로 작성하며 이번 챕터에서는 broker:29092을 사용하겠다.
+- SCHEMA_REGISTRY_LISTENERS: 외부에서 접속할 리스너를 설정한다. 이번 챕터에서는 http://schema-registry:8081 으로 설정하겠다.
+
+
+### 2.3 Connect
+Connect의 경우, 이미지를 빌드하기 위한 도커파일이 필요하다. 먼저 도커파일은 아래와 같이 작성할 수 있다.
+
+```
+# connect.Dockerfile
+FROM confluentinc/cp-kafka-connect:7.3.0
+
+ENV CONNECT_PLUGIN_PATH="/usr/share/java,/usr/share/confluent-hub-components"
+
+RUN confluent-hub install --no-prompt snowflakeinc/snowflake-kafka-connector:1.5.5 &&\
+  confluent-hub install --no-prompt confluentinc/kafka-connect-jdbc:10.2.2 &&\
+  confluent-hub install --no-prompt confluentinc/kafka-connect-json-schema-converter:7.3.0
+```
+
+그럼 해당 도커파일을 가지고 compose 파일을 작성해보자.
+```
+version: "3"
+
+services:  
+  connect:
+    build:
+      context: .
+      dockerfile: connect.Dockerfile
+    container_name: connect
+    depends_on:
+      - broker
+      - schema-registry
+    ports:
+      - 8083:8083
+    environment:
+      CONNECT_BOOTSTRAP_SERVERS: broker:29092
+      CONNECT_REST_ADVERTISED_HOST_NAME: connect
+      CONNECT_GROUP_ID: docker-connect-group
+      CONNECT_CONFIG_STORAGE_TOPIC: docker-connect-configs
+      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_OFFSET_STORAGE_TOPIC: docker-connect-offsets
+      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_STATUS_STORAGE_TOPIC: docker-connect-status
+      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_KEY_CONVERTER: org.apache.kafka.connect.storage.StringConverter
+      CONNECT_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_VALUE_CONVERTER_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+```
+환경변수는 다음과 같다.
+- CONNECT_BOOTSTRAP_SERVERS: Bootstrap으로 띄워진 브로커 서버를 지정한다. 일반적으로 브로커 서비스 이름 : 브로커 서비스 내부 포트 형식을 사용한다.
+- CONNECT_REST_ADVERTISED_HOST_NAME: Connect에서는 REST API 요청에 대한 처리와 Connector의 등록, 설정, 시작, 종료 등의 처리를 담당하는 Worker가 존재한다. Worker 간의 연결이 가능하도록 호스트 이름을 지정한다.
+- CONNECT_GROUP_ID: Connect 의 Worker 프로세스 그룹 (또는 클러스터)를 구성하는 데 사용하는 고유한 ID를 지정한다. 단, Consumer 그룹 ID 와 충돌하면 안된다.
+- CONNECT_CONFIG_STORAGE_TOPIC: Connector의 환경 설정을 저장할 브로커의 토픽 이름을 설정한다.
+- CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: 환경 설정을 저장하는 토픽을 생성할 때 사용할 Replication Factor의 수를 설정한다.
+- CONNECT_OFFSET_STORAGE_TOPIC: Connector의 offset을 저장할 브로커의 토픽 이름을 설정한다.
+- CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR
+Offset 을 저장하는 토픽을 생성할 때 사용할 Replication Factor의 수를 설정한다.
+- CONNECT_STATUS_STORAGE_TOPIC: Connector와 task의 상태를 저장할 브로커의 토픽 이름을 설정한다.
+- CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: 상태를 저장하는 토픽을 생성할 때 사용할 Replication Factor의 수를 설정한다.
+- CONNECT_KEY_CONVERTER: Key에 대한 Converter를 설정힌다.
+- CONNECT_VALUE_CONVERTER: Value에 대한 Converter를 설정한다. 이번 챕터에서는 Json Converter를 사용하겠다.
+- CONNECT_VALUE_CONVERTER_SCHEMA_REGISTRY_URL: Value Converter에 대한 Schema Registry URL을 설정한다. 이번 챕터에서는 Schema Registry 의 서비스 이름과 포트인 http://schema-registry:8081 을 기입해준다.
+
+### 실행 및 확인
+```
+docker compose -p part7-kafka -f kafka-docker-compose.yaml up -d
+docker ps
+```
+
+```
+CONTAINER ID   IMAGE                                   COMMAND                  CREATED          STATUS                            PORTS                                        NAMES
+7725dc0e5cda   part7-kafka-connect                     "/etc/confluent/dock…"   12 seconds ago   Up 4 seconds (health: starting)   0.0.0.0:8083->8083/tcp, 9092/tcp             connect
+c0acbe428897   confluentinc/cp-schema-registry:7.3.0   "/etc/confluent/dock…"   15 seconds ago   Up 5 seconds                      0.0.0.0:8081->8081/tcp                       schema-registry
+7656a09bb391   confluentinc/cp-kafka:7.3.0             "/etc/confluent/dock…"   16 seconds ago   Up 6 seconds                      0.0.0.0:9092->9092/tcp                       broker
+72aed624eed0   confluentinc/cp-zookeeper:7.3.0         "/etc/confluent/dock…"   17 seconds ago   Up 8 seconds                      2888/tcp, 0.0.0.0:2181->2181/tcp, 3888/tcp   zookeeper
+```
