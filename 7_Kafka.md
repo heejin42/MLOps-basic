@@ -390,3 +390,171 @@ c0acbe428897   confluentinc/cp-schema-registry:7.3.0   "/etc/confluent/dock…" 
 7656a09bb391   confluentinc/cp-kafka:7.3.0             "/etc/confluent/dock…"   16 seconds ago   Up 6 seconds                      0.0.0.0:9092->9092/tcp                       broker
 72aed624eed0   confluentinc/cp-zookeeper:7.3.0         "/etc/confluent/dock…"   17 seconds ago   Up 8 seconds                      2888/tcp, 0.0.0.0:2181->2181/tcp, 3888/tcp   zookeeper
 ```
+
+
+--------------------------
+
+
+# 실습 - 5
+## Source Connector
+Connect에 Source Connector를 생성해보고 토픽에 쌓인 데이터를 확인해볼 것이다. 먼저 아래의 다이어그램처럼 서비스를 구현할 것이며, DB 서버를 먼저 실행시켜야 한다.
+![img](./img/7_kafka_system_sc.png)
+
+### 생성
+Source Connector는 connect에 api를 호출해서 생성한다. 아래 명령어를 통해 source connector를 띄울 수 있는 sourse_connector.json을 생성하겠다. 
+
+```
+cat <<EOF > source_connector.json
+{
+    "name": "postgres-source-connector",
+    "config": {
+        "connector.class": "io.confluent.connect.jdbc.JdbcSourceConnector",
+        "connection.url": "jdbc:postgresql://postgres-server:5432/mydatabase",
+        "connection.user": "heejin",
+        "connection.password": "lhj6843*",
+        "table.whitelist": "iris_data",
+        "topic.prefix": "postgres-source-",
+        "topic.creation.default.partitions": 1,
+        "topic.creation.default.replication.factor": 1,
+        "mode": "incrementing",
+        "incrementing.column.name": "id",
+        "tasks.max": 2,
+        "transforms": "TimestampConverter",
+        "transforms.TimestampConverter.type": "org.apache.kafka.connect.transforms.TimestampConverter$Value",
+        "transforms.TimestampConverter.field": "timestamp",
+        "transforms.TimestampConverter.format": "yyyy-MM-dd HH:mm:ss.S",
+        "transforms.TimestampConverter.target.type": "string"
+    }
+}
+EOF
+```
+
+그럼 source_connector.json 파일이 생성되며 내용은 다음과 같다.   
+```
+{
+    "name": "postgres-source-connector",
+    "config": {
+        "connector.class": "io.confluent.connect.jdbc.JdbcSourceConnector",
+        "connection.url": "jdbc:postgresql://postgres-server:5432/mydatabase",
+        "connection.user": "heejin",
+        "connection.password": "lhj6843*",
+        "table.whitelist": "iris_data",
+        "topic.prefix": "postgres-source-",
+        "topic.creation.default.partitions": 1,
+        "topic.creation.default.replication.factor": 1,
+        "mode": "incrementing",
+        "incrementing.column.name": "id",
+        "tasks.max": 2,
+        "transforms": "TimestampConverter",
+        "transforms.TimestampConverter.type": "org.apache.kafka.connect.transforms.TimestampConverter",
+        "transforms.TimestampConverter.field": "timestamp",
+        "transforms.TimestampConverter.format": "yyyy-MM-dd HH:mm:ss.S",
+        "transforms.TimestampConverter.target.type": "string"
+    }
+}
+```
+- name: connector의 이름
+- config
+  - connector.class: Connector를 생성하기 위한 class를 설정하는데 여기서는 JDBC Source Connector를 사용하므로 io.confluent.connect.jdbc.JdbcSourceConnector를 기입한다.
+  - connection.url: source DB에 접근하기 위한 주소를 설정한다. postgres server의 url를 입력해주겠다.
+  - connection.user: source DB에 접속하기 위한 유저 이름을 설정한다.
+  - connection.password: source DB에 접속하기 위한 유저 비밀번호를 설정한다.
+  - table.whitelist: 데이터를 가져올 테이블 목록을 설정하며 여러개를 설정할 경우 콤마를 쓸 수 있다. 
+  - topic.prefix: 토픽 생성 시 이름 앞에 붙일 prefix를 설정한다.
+  - topic.creation.default.partitions: 토픽 자동 생성을 위해 설정하는 값으로 source connector를 실행했는데 토픽이 존재하지 않는다면 자동으로 생성하게 된다. 이때 필요한 기본 설정으로 토픽 자동 생성 시에 파티션의 개수를 설정한다.
+  - topic.creation.default.replication.factor: 토픽 자동 생성 시에 replication factor 수를 설정한다. 
+  - mode: 테이블에 변경이 발생했을 때 어떤 방식으로 가져올지 설정하는 것으로 총 4가지 모드가 존재한다.
+    - bulk
+    - timestamp
+    - incrementing
+    - timestamp+incrementing  
+  - increamenting.column.name: Incrementing column의 이름을 설정한다. 
+  - tasks.max: Connector에서 task의 수를 얼마나 가져갈 지 설정한다. 
+  - transforms: 
+  - transforms.TimestampConverter.type:
+  - transforms.TimestampConverter.field: 
+  - transforms.TimestampConverter.format
+  - transforms.TimestampConverter.target.type
+
+
+그럼 이 json 파일을 curl을 이용해 Connect의 REST API에 POST로 보내겠다. 
+```
+curl -X POST http://localhost:8083/connectors -H "Content-Type: application/json" -d @source_connector.json
+```
+명령어를 실행하면 다음과 같이 출력된다.
+```
+{"name":"postgres-source-connector","config":{"connector.class":"io.confluent.connect.jdbc.JdbcSourceConnector","connection.url":"jdbc:postgresql://postgres-server:5432/mydatabase","connection.user":"myuser","connection.password":"mypassword","table.whitelist":"iris_data","topic.prefix":"postgres-source-","topic.creation.default.partitions":"1","topic.creation.default.replication.factor":"1","mode":"incrementing","incrementing.column.name":"id","tasks.max":"2","name":"postgres-source-connector"},"tasks":[],"type":"source"}%
+```
+
+### 생성 확인
+아래의 GET method로 현재 connector 목록을 확인할 수 있다.
+```
+curl -X GET http://localhost:8083/connectors
+```
+그럼 아래와 같이 출력될 것이다.
+```
+["postgres-source-connector"]%
+```
+이어서 postgres-source-connector의 정보를 확인하자.
+```
+curl -X GET http://localhost:8083/connectors/postgres-source-connector
+```
+```
+{"name":"postgres-source-connector","config":{"connector.class":"io.confluent.connect.jdbc.JdbcSourceConnector","mode":"incrementing","incrementing.column.name":"id","topic.prefix":"postgres-source-","topic.creation.default.partitions":"1","connection.password":"mypassword","connection.user":"myuser","tasks.max":"2","topic.creation.default.replication.factor":"1","name":"postgres-source-connector","connection.url":"jdbc:postgresql://postgres-server:5432/mydatabase","table.whitelist":"iris_data"},"tasks":[],"type":"source"}%
+```
+
+### topic에 쌓인 데이터 확인
+토픽에 데이터가 잘 쌓이고 있는지 확인해보겠다. kafkacat을 이용하기 위해 설치를 해준다.   
+Linux - apt-get install kafkacat   
+MacOS - brew install kcat   
+
+아래 명령어를 통해 토픽 리스트를 확인하자
+```
+kcat -L -b localhost:9092
+```
+그럼 중간에 postgres-source-iris_data 토픽이 생성된 것을 볼 수 있다.
+```
+Metadata for all topics (from broker 1: localhost:9092/1):
+ 1 brokers:
+  broker 1 at localhost:9092 (controller)
+ 6 topics:
+  topic "docker-connect-status" with 5 partitions:
+    partition 0, leader 1, replicas: 1, isrs: 1
+    partition 1, leader 1, replicas: 1, isrs: 1
+    partition 2, leader 1, replicas: 1, isrs: 1
+    partition 3, leader 1, replicas: 1, isrs: 1
+    partition 4, leader 1, replicas: 1, isrs: 1
+  topic "_schemas" with 1 partitions:
+    partition 0, leader 1, replicas: 1, isrs: 1
+  topic "__consumer_offsets" with 50 partitions:
+    partition 0, leader 1, replicas: 1, isrs: 1
+    partition 1, leader 1, replicas: 1, isrs: 1
+    .
+    .
+    .
+    partition 48, leader 1, replicas: 1, isrs: 1
+    partition 49, leader 1, replicas: 1, isrs: 1
+  topic "postgres-source-iris_data" with 1 partitions:
+    partition 0, leader 1, replicas: 1, isrs: 1
+  topic "docker-connect-offsets" with 25 partitions:
+    partition 0, leader 1, replicas: 1, isrs: 1
+    partition 1, leader 1, replicas: 1, isrs: 1
+    .
+    .
+    .
+    partition 23, leader 1, replicas: 1, isrs: 1
+    partition 24, leader 1, replicas: 1, isrs: 1
+  topic "docker-connect-configs" with 1 partitions:
+    partition 0, leader 1, replicas: 1, isrs: 1
+```
+  
+kcat 명령어를 이용하여 postgres-source-iris_data 토픽에 쌓인 데이터를 확인해보자.
+```
+kcat -b localhost:9092 -t postgres-source-iris_data
+```
+```
+{"schema":{"type":"struct","fields":[{"type":"int32","optional":false,"field":"id"},{"type":"double","optional":true,"field":"sepal_length"},{"type":"double","optional":true,"field":"sepal_width"},{"type":"double","optional":true,"field":"petal_length"},{"type":"double","optional":true,"field":"petal_width"},{"type":"int32","optional":true,"field":"target"}],"optional":false,"name":"iris_data"},"payload":{"id":187,"sepal_length":6.5,"sepal_width":3.0,"petal_length":5.8,"petal_width":2.2,"target":2}}
+{"schema":{"type":"struct","fields":[{"type":"int32","optional":false,"field":"id"},{"type":"double","optional":true,"field":"sepal_length"},{"type":"double","optional":true,"field":"sepal_width"},{"type":"double","optional":true,"field":"petal_length"},{"type":"double","optional":true,"field":"petal_width"},{"type":"int32","optional":true,"field":"target"}],"optional":false,"name":"iris_data"},"payload":{"id":189,"sepal_length":7.0,"sepal_width":3.2,"petal_length":4.7,"petal_width":1.4,"target":1}}
+{"schema":{"type":"struct","fields":[{"type":"int32","optional":false,"field":"id"},{"type":"double","optional":true,"field":"sepal_length"},{"type":"double","optional":true,"field":"sepal_width"},{"type":"double","optional":true,"field":"petal_length"},{"type":"double","optional":true,"field":"petal_width"},{"type":"int32","optional":true,"field":"target"}],"optional":false,"name":"iris_data"},"payload":{"id":191,"sepal_length":5.6,"sepal_width":2.7,"petal_length":4.2,"petal_width":1.3,"target":1}}
+% Reached end of topic postgres-source-iris_data [0] at offset 191
+```
