@@ -558,3 +558,45 @@ kcat -b localhost:9092 -t postgres-source-iris_data
 {"schema":{"type":"struct","fields":[{"type":"int32","optional":false,"field":"id"},{"type":"double","optional":true,"field":"sepal_length"},{"type":"double","optional":true,"field":"sepal_width"},{"type":"double","optional":true,"field":"petal_length"},{"type":"double","optional":true,"field":"petal_width"},{"type":"int32","optional":true,"field":"target"}],"optional":false,"name":"iris_data"},"payload":{"id":191,"sepal_length":5.6,"sepal_width":2.7,"petal_length":4.2,"petal_width":1.3,"target":1}}
 % Reached end of topic postgres-source-iris_data [0] at offset 191
 ```
+
+----------------------------
+
+# 실습 - 6
+## Sink Connector
+먼저 이번 실습에서는 docker compose를 이용해 데이터를 전달받을 target DB 서버와 table creator를 구축할 것이며, 구축한 target DB 서버에 데이터를 전달할 sink connector를 connect에 생성할 것이다.
+```
+[Target DB Server INFO]
+Image : postgres:14.0
+Container name : target-postgres-server
+POSTGRES_USER : targetuser
+POSTGRES_PASSWORD : targetpw
+POSTGRES_DB : targetdatabase
+Port forwarding : 5433:5432
+
+[Table Creator INFO]
+Dockerfile : psycopg2 패키지를 이용하여 Target DB 서버에 테이블을 생성하는 코드를 만든 후 Dockerfile 에서 해당 코드가 실행되도록 이미지를 만든다.
+Docker Compose의 Container name : table-creator
+```
+Sink Connector 를 띄우기 위한 설정 파일 (sink_connector.json)
+```
+{
+    "name": "postgres-sink-connector",
+    "config": {
+        "connector.class": "io.confluent.connect.jdbc.JdbcSinkConnector",
+        "connection.url": "jdbc:postgresql://target-postgres-server:5432/targetdatabase",
+        "connection.user": "targetuser",
+        "connection.password": "targetpassword",
+        "table.name.format": "iris_data",
+        "topics": "postgres-source-iris_data",
+        "auto.create": false,
+        "auto.evolve": false,
+        "tasks.max": 2,
+        "transforms": "TimestampConverter",
+        "transforms.TimestampConverter.type": "org.apache.kafka.connect.transforms.TimestampConverter$Value",
+        "transforms.TimestampConverter.field": "timestamp",
+        "transforms.TimestampConverter.format": "yyyy-MM-dd HH:mm:ss.S",
+        "transforms.TimestampConverter.target.type": "Timestamp"
+    }
+}
+```
+
