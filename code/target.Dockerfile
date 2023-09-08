@@ -5,6 +5,6 @@ WORKDIR /usr/app
 RUN pip install -U pip &&\
     pip install psycopg2-binary
 
-COPY 7_create_table.py create_table.py
+COPY example/7_create_table.py create_table.py
 
 ENTRYPOINT ["python", "create_table.py"]
