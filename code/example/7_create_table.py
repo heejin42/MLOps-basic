@@ -23,8 +23,8 @@ if __name__ == "__main__":
     db_connect = psycopg2.connect(
         user="targetuser",
         password="targetpassword",
-        host="target-postgres-server",
-        port=5432,
+        host="localhost",
+        port=5433,
         database="targetdatabase",
     )
     create_table(db_connect)
