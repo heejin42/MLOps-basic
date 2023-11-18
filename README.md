@@ -19,6 +19,7 @@ MLOps를 공부하고 간단한 시스템을 구현해본 내용입니다.
 
 ## 참고자료
 basic - ML Engineer를 위한 MLOps
-![링크](https://mlops-for-mle.github.io/tutorial/)
+<https://mlops-for-mle.github.io/tutorial/>  
+
 advanced - MLOps for ALL
-![링크](https://mlops-for-all.github.io/)
+<https://mlops-for-all.github.io/>
